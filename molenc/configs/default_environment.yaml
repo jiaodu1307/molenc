@@ -1,0 +1,75 @@
+# Default environment configuration for MolEnc
+# This file provides sensible defaults for most use cases
+
+environment:
+  # Computational resources
+  max_workers: 4
+  memory_limit: "4GB"
+  
+  # GPU settings
+  gpu_enabled: false
+  device: "cpu"
+  
+  # Directories
+  cache_dir: "~/.molenc/cache"
+  temp_dir: "~/.molenc/temp"
+  
+  # Logging
+  log_level: "INFO"
+  
+  # Features
+  features:
+    - "preprocessing"
+    - "encoding"
+    - "validation"
+  
+  # Custom settings
+  custom_settings:
+    timeout: 300
+    retry_attempts: 3
+
+# Preprocessing configuration
+preprocessing:
+  standardize: true
+  validate: true
+  filter_molecules: true
+  
+  standardize_options:
+    remove_salts: true
+    neutralize: true
+    canonical_tautomer: true
+  
+  validation_options:
+    strict_mode: false
+    check_aromaticity: true
+    check_valence: true
+    max_atoms: 200
+  
+  filter_options:
+    molecular_weight:
+      min: 50
+      max: 1000
+    logp:
+      min: -5
+      max: 10
+    num_rings:
+      max: 10
+
+# Encoding configuration
+encoding:
+  default_encoder: "morgan"
+  batch_size: 100
+  
+  encoder_configs:
+    morgan:
+      radius: 2
+      n_bits: 2048
+      use_features: false
+    
+    rdkit_descriptors:
+      descriptors:
+        - "MolWt"
+        - "MolLogP"
+        - "NumHDonors"
+        - "NumHAcceptors"
+        - "TPSA"

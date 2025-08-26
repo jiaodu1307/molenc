@@ -1,0 +1,27 @@
+# Include documentation files
+include README.md
+include LICENSE
+include CHANGELOG.md
+
+# Include requirements files
+include requirements.txt
+include requirements-dev.txt
+include requirements-optional.txt
+
+# Include configuration files
+recursive-include molenc/configs *.json *.yaml *.yml
+recursive-include molenc/data *.json *.csv *.txt
+
+# Include examples
+recursive-include examples *.py *.ipynb *.md
+
+# Include tests
+recursive-include tests *.py
+
+# Exclude compiled files
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.pyd
+global-exclude __pycache__
+global-exclude .git*
+global-exclude .DS_Store

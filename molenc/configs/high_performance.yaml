@@ -1,0 +1,68 @@
+# High-performance configuration for MolEnc
+# Optimized for large-scale molecular encoding tasks
+
+environment:
+  # Maximize computational resources
+  max_workers: 16
+  memory_limit: "16GB"
+  
+  # GPU acceleration
+  gpu_enabled: true
+  device: "cuda"
+  
+  # Directories with larger cache
+  cache_dir: "~/.molenc/cache_hp"
+  temp_dir: "/tmp/molenc"
+  
+  # Minimal logging for performance
+  log_level: "WARNING"
+  
+  # All features enabled
+  features:
+    - "preprocessing"
+    - "encoding"
+    - "validation"
+    - "caching"
+    - "parallel_processing"
+  
+  custom_settings:
+    timeout: 1800  # 30 minutes
+    retry_attempts: 1
+    enable_profiling: false
+    memory_mapping: true
+
+# Fast preprocessing
+preprocessing:
+  standardize: true
+  validate: false  # Skip validation for speed
+  filter_molecules: true
+  
+  standardize_options:
+    remove_salts: true
+    neutralize: false  # Skip for speed
+    canonical_tautomer: false  # Skip for speed
+  
+  filter_options:
+    molecular_weight:
+      min: 50
+      max: 2000  # Allow larger molecules
+    # Skip other filters for speed
+
+# High-throughput encoding
+encoding:
+  default_encoder: "morgan"
+  batch_size: 1000  # Large batches
+  
+  encoder_configs:
+    morgan:
+      radius: 3
+      n_bits: 4096  # Higher resolution
+      use_features: true
+      use_chirality: true
+    
+    rdkit_descriptors:
+      descriptors:
+        - "MolWt"
+        - "MolLogP"
+        - "TPSA"
+      parallel: true
