@@ -1,7 +1,7 @@
 """Molecular fingerprint encoders.
 
 This module contains various molecular fingerprint implementations
-including Morgan, MACCS, ECFP, and other traditional fingerprints.
+including Morgan and MACCS fingerprints.
 """
 
 # Import fingerprint implementations
@@ -15,19 +15,14 @@ try:
 except ImportError:
     MACCSEncoder = None
 
+# Import base class for extension
 try:
-    from .ecfp import ECFPEncoder
+    from .base import BaseFingerprintEncoder
 except ImportError:
-    ECFPEncoder = None
-
-try:
-    from .atom_pair import AtomPairEncoder
-except ImportError:
-    AtomPairEncoder = None
+    BaseFingerprintEncoder = None
 
 __all__ = [
     "MorganEncoder",
-    "MACCSEncoder", 
-    "ECFPEncoder",
-    "AtomPairEncoder",
+    "MACCSEncoder",
+    "BaseFingerprintEncoder",
 ]
