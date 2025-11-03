@@ -13,6 +13,15 @@ import subprocess
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from ..core.exceptions import DependencyError
+from .dependency_utils import (
+    check_optional_dependency,
+    is_package_available,
+    check_dependencies,
+    get_missing_dependencies,
+    require_dependencies,
+    warn_missing_optional,
+    get_dependency_status as get_basic_status
+)
 
 
 @dataclass
@@ -31,7 +40,6 @@ class AdvancedDependencyManager:
     
     def __init__(self):
         self._dependencies: Dict[str, DependencyInfo] = {}
-        self._availability_cache: Dict[str, bool] = {}
         self._import_cache: Dict[str, Any] = {}
         
     def register_dependency(self, 
@@ -69,16 +77,7 @@ class AdvancedDependencyManager:
         Returns:
             True if dependency is available, False otherwise
         """
-        if name in self._availability_cache:
-            return self._availability_cache[name]
-            
-        try:
-            importlib.import_module(name)
-            self._availability_cache[name] = True
-            return True
-        except ImportError:
-            self._availability_cache[name] = False
-            return False
+        return is_package_available(name)
             
     def import_dependency(self, name: str) -> Any:
         """Import a dependency with caching.
@@ -177,7 +176,6 @@ class AdvancedDependencyManager:
                 text=True
             )
             # Clear cache to force recheck
-            self._availability_cache.pop(name, None)
             self._import_cache.pop(name, None)
             return self.check_dependency(name)
         except subprocess.CalledProcessError:
@@ -204,7 +202,6 @@ class AdvancedDependencyManager:
         
     def clear_cache(self) -> None:
         """Clear all caches."""
-        self._availability_cache.clear()
         self._import_cache.clear()
 
 
@@ -239,3 +236,12 @@ dependency_manager.register_dependency(
     fallback_available=True,
     description='HTTP library for cloud API access'
 )
+
+# Convenience functions using dependency_utils
+def check_advanced_dependencies(dependencies: List[str]) -> Tuple[bool, List[str]]:
+    """Check multiple dependencies using basic utilities."""
+    return check_dependencies(dependencies)
+
+def require_advanced_dependencies(dependencies: List[str]):
+    """Require dependencies with advanced error handling."""
+    return require_dependencies(dependencies)

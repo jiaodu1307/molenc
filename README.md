@@ -156,8 +156,7 @@ combined_vector = chain.encode(smiles)
   - *描述*: 将分子显式地视为图结构，利用图神经网络（GNN）捕捉拓扑信息。
   - *已实现*: 
     - ✅ `GCN`: 图卷积网络
-  - *待完善*: 
-    - ⏳ `GAT`: 图注意力网络
+  - *待实现*: 
     - ⏳ `MPNN`: 消息传递神经网络
     - ⏳ `GIN`: 图同构网络
     - ⏳ `SchNet`: 用于分子的连续滤波器卷积网络
@@ -346,7 +345,7 @@ encoder = MolEncoder('morgan', handle_errors='skip')
 | 指纹方法 | MACCS | 800+ mol/s | 166 | 极低 | 否 | 中等 |
 | Transformer | ChemBERTa | 120 mol/s | 768 | 高 | 推荐 | 高 |
 | GNN | GCN | 200 mol/s | 256 | 中等 | 可选 | 高 |
-| GNN | GAT | 150 mol/s | 256 | 中等 | 可选 | 高 |
+
 | 多模态 | Uni-Mol | 50 mol/s | 512 | 很高 | 必需 | 很高 |
 | 多模态 | MolCLR | 80 mol/s | 512 | 高 | 必需 | 高 |
 
