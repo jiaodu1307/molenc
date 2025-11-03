@@ -10,12 +10,6 @@ try:
 except ImportError:
     GCNEncoder = None
 
-try:
-    from .gat import GATEncoder
-except ImportError:
-    GATEncoder = None
-
 __all__ = [
     "GCNEncoder",
-    "GATEncoder",
 ]

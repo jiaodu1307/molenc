@@ -4,13 +4,16 @@ import numpy as np
 from rdkit import Chem
 from typing import Any
 
-from molenc.core.base import BaseEncoder
 from molenc.core.registry import register_encoder
 from molenc.core.exceptions import InvalidSMILESError
+from molenc.core.dependency_utils import require_dependencies
+from molenc.core.encoder_utils import EncoderUtils
+from .base import BaseFingerprintEncoder
 
 
 @register_encoder('morgan')
-class MorganEncoder(BaseEncoder):
+@require_dependencies(['rdkit'], 'Morgan')
+class MorganEncoder(BaseFingerprintEncoder):
     """Morgan fingerprint encoder.
 
     Morgan fingerprints (also known as circular fingerprints) are based on
@@ -35,26 +38,19 @@ class MorganEncoder(BaseEncoder):
             use_bond_types: Whether to include bond type information (default: True)
             **kwargs: Additional parameters passed to BaseEncoder
         """
+        # Validate parameters using mixin
+        validated_params = self.validate_init_parameters(
+            radius=radius,
+            n_bits=n_bits
+        )
+        
         super().__init__(**kwargs)
 
-        self.radius = radius
-        self.n_bits = n_bits
+        self.radius = validated_params['radius']
+        self.n_bits = validated_params['n_bits']
         self.use_features = use_features
         self.use_chirality = use_chirality
         self.use_bond_types = use_bond_types
-
-        # Check RDKit availability
-        try:
-            import rdkit
-        except ImportError:
-            from molenc.core.exceptions import DependencyError
-            raise DependencyError("rdkit", "morgan")
-
-        # Validate parameters
-        if radius < 0:
-            raise ValueError("Radius must be non-negative")
-        if n_bits <= 0 or (n_bits & (n_bits - 1)) != 0:
-            raise ValueError("n_bits must be a positive power of 2")
 
         # Create fingerprint generator using the new API
         try:
@@ -78,69 +74,55 @@ class MorganEncoder(BaseEncoder):
             # Fallback for older RDKit versions (shouldn't happen with 2025.03.5)
             self.fp_generator = None  # type: ignore
 
-    def _encode_single(self, smiles: str) -> np.ndarray:
+    def _generate_fingerprint(self, mol: Chem.Mol) -> np.ndarray:
         """
-        Encode a single SMILES string to Morgan fingerprint.
+        Generate Morgan fingerprint from RDKit molecule object.
 
         Args:
-            smiles: SMILES string to encode
+            mol: RDKit molecule object
 
         Returns:
             Morgan fingerprint as numpy array
-
-        Raises:
-            InvalidSMILESError: If SMILES is invalid
         """
-        try:
-            mol = Chem.MolFromSmiles(smiles)
-            if mol is None:
-                raise InvalidSMILESError(smiles, "Could not parse SMILES")
-
-            # Use the new fingerprint generator if available
-            if self.fp_generator is not None:
-                # Generate fingerprint using new API
-                fp = self.fp_generator.GetFingerprint(mol)
-                
-                # Convert to numpy array
-                arr = np.zeros((self.n_bits,), dtype=np.uint8)
-                for bit_id in fp.GetOnBits():
-                    if bit_id < self.n_bits:  # Safety check
-                        arr[bit_id] = 1
+        # Use the new fingerprint generator if available
+        if self.fp_generator is not None:
+            # Generate fingerprint using new API
+            fp = self.fp_generator.GetFingerprint(mol)
+            
+            # Convert to numpy array
+            arr = np.zeros((self.n_bits,), dtype=np.uint8)
+            for bit_id in fp.GetOnBits():
+                if bit_id < self.n_bits:  # Safety check
+                    arr[bit_id] = 1
+        else:
+            # Fallback to old API (shouldn't be needed with RDKit 2025)
+            from rdkit.Chem import rdMolDescriptors
+            if self.use_features:
+                # Feature-based Morgan fingerprint
+                fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(
+                    mol,
+                    radius=self.radius,
+                    nBits=self.n_bits,
+                    useFeatures=True,
+                    useChirality=self.use_chirality,
+                    useBondTypes=self.use_bond_types
+                )
             else:
-                # Fallback to old API (shouldn't be needed with RDKit 2025)
-                from rdkit.Chem import rdMolDescriptors
-                if self.use_features:
-                    # Feature-based Morgan fingerprint
-                    fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(
-                        mol,
-                        radius=self.radius,
-                        nBits=self.n_bits,
-                        useFeatures=True,
-                        useChirality=self.use_chirality,
-                        useBondTypes=self.use_bond_types
-                    )
-                else:
-                    # Standard Morgan fingerprint
-                    fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(
-                        mol,
-                        radius=self.radius,
-                        nBits=self.n_bits,
-                        useChirality=self.use_chirality,
-                        useBondTypes=self.use_bond_types
-                    )
+                # Standard Morgan fingerprint
+                fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(
+                    mol,
+                    radius=self.radius,
+                    nBits=self.n_bits,
+                    useChirality=self.use_chirality,
+                    useBondTypes=self.use_bond_types
+                )
 
-                # Convert to numpy array
-                arr = np.zeros((self.n_bits,), dtype=np.uint8)
-                for i in range(self.n_bits):
-                    arr[i] = fp[i]
+            # Convert to numpy array
+            arr = np.zeros((self.n_bits,), dtype=np.uint8)
+            for i in range(self.n_bits):
+                arr[i] = fp[i]
 
-            return np.array(arr, dtype=np.uint8)
-
-        except Exception as e:
-            if isinstance(e, InvalidSMILESError):
-                raise e
-            raise InvalidSMILESError(
-                smiles, f"Morgan fingerprint generation failed: {str(e)}")
+        return np.array(arr, dtype=np.uint8)
 
     def get_output_dim(self) -> int:
         """

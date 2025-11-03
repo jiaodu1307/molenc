@@ -5,13 +5,15 @@ from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors
 from typing import Dict
 
-from molenc.core.base import BaseEncoder
 from molenc.core.registry import register_encoder
 from molenc.core.exceptions import InvalidSMILESError
+from molenc.core.dependency_utils import require_dependencies
+from .base import BaseFingerprintEncoder
 
 
 @register_encoder('maccs')
-class MACCSEncoder(BaseEncoder):
+@require_dependencies(['rdkit'], 'MACCS')
+class MACCSEncoder(BaseFingerprintEncoder):
     """MACCS keys fingerprint encoder.
 
     MACCS (Molecular ACCess System) keys are a set of 166 predefined
@@ -31,45 +33,25 @@ class MACCSEncoder(BaseEncoder):
         """
         super().__init__(**kwargs)
 
-        # Check RDKit availability
-        try:
-            import rdkit
-        except ImportError:
-            from molenc.core.exceptions import DependencyError
-            raise DependencyError("rdkit", "maccs")
-
-    def _encode_single(self, smiles: str) -> np.ndarray:
+    def _generate_fingerprint(self, mol: Chem.Mol) -> np.ndarray:
         """
-        Encode a single SMILES string to MACCS keys fingerprint.
+        Generate MACCS keys fingerprint from RDKit molecule object.
 
         Args:
-            smiles: SMILES string to encode
+            mol: RDKit molecule object
 
         Returns:
             MACCS keys fingerprint as numpy array
-
-        Raises:
-            InvalidSMILESError: If SMILES is invalid
         """
-        try:
-            mol = Chem.MolFromSmiles(smiles)
-            if mol is None:
-                raise InvalidSMILESError(smiles, "Could not parse SMILES")
+        # Generate MACCS keys fingerprint
+        fp = rdMolDescriptors.GetMACCSKeysFingerprint(mol)
 
-            # Generate MACCS keys fingerprint
-            fp = rdMolDescriptors.GetMACCSKeysFingerprint(mol)
+        # Convert to numpy array
+        arr = np.zeros((self.MACCS_SIZE,), dtype=np.uint8)
+        for i in range(self.MACCS_SIZE):
+            arr[i] = fp[i]
 
-            # Convert to numpy array
-            arr = np.zeros((self.MACCS_SIZE,), dtype=np.uint8)
-            for i in range(self.MACCS_SIZE):
-                arr[i] = fp[i]
-
-            return np.array(arr, dtype=np.uint8)
-
-        except Exception as e:
-            if isinstance(e, InvalidSMILESError):
-                raise e
-            raise InvalidSMILESError(smiles, f"MACCS keys generation failed: {str(e)}")
+        return np.array(arr, dtype=np.uint8)
 
     def get_output_dim(self) -> int:
         """
