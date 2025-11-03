@@ -108,14 +108,8 @@ def main():
         names = list(fingerprints.keys())[:2]
         fp1, fp2 = fingerprints[names[0]], fingerprints[names[1]]
         
-        # Calculate Tanimoto similarity
-        def tanimoto_similarity(fp_a, fp_b):
-            """Calculate Tanimoto similarity between two fingerprints."""
-            intersection = np.sum(np.logical_and(fp_a, fp_b))
-            union = np.sum(np.logical_or(fp_a, fp_b))
-            if union == 0:
-                return 0.0
-            return intersection / union
+        # Import from unified similarity utilities
+        from molenc.core.similarity_utils import tanimoto_similarity
         
         similarity = tanimoto_similarity(fp1, fp2)
         print(f"Tanimoto similarity between {names[0]} and {names[1]}: {similarity:.4f}")

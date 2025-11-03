@@ -92,9 +92,8 @@ def main():
         names = list(embeddings.keys())[:2]
         emb1, emb2 = embeddings[names[0]], embeddings[names[1]]
         
-        # Calculate cosine similarity
-        def cosine_similarity(a, b):
-            return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+        # Import from unified similarity utilities
+        from molenc.core.similarity_utils import cosine_similarity
         
         similarity = cosine_similarity(emb1, emb2)
         print(f"Similarity between {names[0]} and {names[1]}: {similarity:.4f}")
