@@ -10,6 +10,8 @@ from rdkit.Chem import Mol
 from molenc.core.base import BaseEncoder
 from molenc.core.registry import register_encoder
 from molenc.core.exceptions import InvalidSMILESError
+from molenc.core.dependency_utils import require_dependencies
+from molenc.core.encoder_utils import EncoderUtils
 
 
 class GCNLayer(nn.Module):
@@ -88,6 +90,7 @@ class GCNModel(nn.Module):
 
 
 @register_encoder('gcn')
+@require_dependencies(['torch', 'rdkit'], 'GCN')
 class GCNEncoder(BaseEncoder):
     """Graph Convolutional Network encoder for molecules.
 
@@ -119,21 +122,17 @@ class GCNEncoder(BaseEncoder):
         self.output_dim = output_dim
         self.dropout = dropout
         self.pooling = pooling
+        
+        # Validate parameters
+        EncoderUtils.validate_positive_int(output_dim, "output_dim")
+        EncoderUtils.validate_choice(pooling, ["mean", "max", "sum"], "pooling")
+        for i, dim in enumerate(hidden_dims):
+            EncoderUtils.validate_positive_int(dim, f"hidden_dims[{i}]")
 
-        # Check dependencies
-        try:
-            import torch
-            from rdkit import Chem
-        except ImportError as e:
-            from molenc.core.exceptions import DependencyError
-            missing_lib = str(e).split("'")[1] if "'" in str(e) else "torch/rdkit"
-            raise DependencyError(missing_lib, "gcn")
+
 
         # Set device
-        if device is None:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            self.device = torch.device(device)
+        self.device = EncoderUtils.setup_device(device)
 
         # Initialize model
         self._init_model()

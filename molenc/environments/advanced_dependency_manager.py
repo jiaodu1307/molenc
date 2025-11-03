@@ -77,7 +77,6 @@ class AdvancedDependencyManager:
             'maccs': ['rdkit'],
             'chemberta': ['rdkit', 'transformers', 'torch'],
             'gcn': ['rdkit', 'torch', 'torch_geometric'],
-            'gat': ['rdkit', 'torch', 'torch_geometric'],
             'unimol': ['rdkit', 'torch', 'unimol_tools'],  # Assuming unimol_tools is the package
         }
         

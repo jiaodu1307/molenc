@@ -356,9 +356,9 @@ class TestGlobalRegistry:
         # since the modules might not be available in the test environment
         
         expected_encoders = [
-            'morgan', 'maccs', 'mol2vec',
+            'morgan', 'maccs',
             'chemberta',
-            'gcn', 'gat',
+            'gcn',
             'unimol'
         ]
         

@@ -265,15 +265,21 @@ def _process_single_smiles(smiles: str,
     return result
 
 
+# Import unified batch processing utilities
+from molenc.core.batch_utils import batch_process_with_fallback
+
+
 def batch_standardize(smiles_list: List[str],
                       n_jobs: int = 1,
+                      skip_invalid: bool = True,
                       **standardizer_kwargs) -> List[str]:
     """
-    Batch standardization of SMILES strings.
+    Batch standardization of SMILES strings using unified batch processing.
 
     Args:
         smiles_list: List of SMILES strings
         n_jobs: Number of parallel jobs
+        skip_invalid: Whether to skip invalid SMILES or include them
         **standardizer_kwargs: Arguments for SMILESStandardizer
 
     Returns:
@@ -285,29 +291,27 @@ def batch_standardize(smiles_list: List[str],
         logging.warning("RDKit not available, returning original SMILES")
         return smiles_list
 
-    if n_jobs == 1:
-        standardized_smiles, _ = standardizer.standardize_batch(smiles_list)
-        return standardized_smiles
+    def standardize_single(smiles: str) -> Optional[str]:
+        try:
+            result, failed_indices = standardizer.standardize_batch([smiles])
+            if failed_indices:  # If standardization failed
+                return None if skip_invalid else smiles
+            return result[0] if result else (None if skip_invalid else smiles)
+        except Exception:
+            return None if skip_invalid else smiles
 
-    # Parallel processing
-    chunk_size = max(1, len(smiles_list) // n_jobs)
-    chunks = [smiles_list[i:i + chunk_size]
-              for i in range(0, len(smiles_list), chunk_size)]
-
-    standardized_smiles = []
-
-    with ThreadPoolExecutor(max_workers=n_jobs) as executor:
-        futures = []
-
-        for chunk in chunks:
-            future = executor.submit(standardizer.standardize_batch, chunk)
-            futures.append(future)
-
-        for future in futures:
-            chunk_standardized, _ = future.result()
-            standardized_smiles.extend(chunk_standardized)
-
-    return standardized_smiles
+    results = batch_process_with_fallback(
+        smiles_list,
+        standardize_single,
+        fallback_func=lambda x: None if skip_invalid else x,
+        n_jobs=n_jobs
+    )
+    
+    # Filter out None values if skip_invalid is True
+    if skip_invalid:
+        return [smiles for smiles in results if smiles is not None]
+    else:
+        return results
 
 
 def create_preprocessing_pipeline(standardize: bool = False,

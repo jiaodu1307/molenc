@@ -1,11 +1,7 @@
-"""UniMol encoder implementation with smart environment management.
+"""UniMol encoder implementation.
 
-This module provides a comprehensive UniMol encoder with:
-- Intelligent environment detection and configuration
-- Process isolation for dependency conflicts
-- Cloud API integration as fallback
-- Smart dependency management
-- Performance optimization
+This module provides a UniMol encoder for molecular representation learning
+that combines 2D molecular graphs and 3D molecular conformations.
 """
 
 import numpy as np
@@ -19,45 +15,32 @@ import logging
 from molenc.core.base import BaseEncoder
 from molenc.core.registry import register_encoder
 from molenc.core.exceptions import InvalidSMILESError
+from molenc.core.dependency_utils import require_dependencies
+from molenc.core.exception_decorators import handle_encoding_errors, handle_batch_processing_errors
+from molenc.core.encoder_utils import EncoderUtils
+from molenc.core.encoder_mixins import (
+    SMILESValidationMixin, 
+    ParameterValidationMixin, 
+    DeviceManagementMixin,
+    ModelLoadingMixin
+)
 
-# Import smart environment management
-try:
-    from molenc.isolation import get_environment_manager, IsolationEnvironmentType as EnvironmentType
-    SMART_ENVIRONMENT_AVAILABLE = True
-except ImportError:
-    SMART_ENVIRONMENT_AVAILABLE = False
-    get_environment_manager = None
-    EnvironmentType = None
 
-# Import advanced dependency management
-try:
-    from molenc.environments.advanced_dependency_manager import check_encoder_readiness
-    ADVANCED_DEPENDENCY_CHECK_AVAILABLE = True
-except ImportError:
-    ADVANCED_DEPENDENCY_CHECK_AVAILABLE = False
-
-# Import cloud API support
-try:
-    from molenc.cloud.api_client import get_cloud_client
-    CLOUD_API_AVAILABLE = True
-except ImportError:
-    CLOUD_API_AVAILABLE = False
 
 
 @register_encoder('unimol')
-class UniMolEncoder(BaseEncoder):
-    """Advanced UniMol encoder with smart environment management.
+@require_dependencies(['torch', 'rdkit', 'unimol_tools'], 'UniMol')
+class UniMolEncoder(BaseEncoder, SMILESValidationMixin, ParameterValidationMixin, 
+                   DeviceManagementMixin, ModelLoadingMixin):
+    """UniMol encoder for molecular representation learning.
 
     UniMol is a unified molecular representation learning framework that
     combines 2D molecular graphs and 3D molecular conformations to learn
     comprehensive molecular representations.
 
-    This implementation includes:
-    - Smart environment detection and configuration
-    - Process isolation for dependency conflicts
-    - Cloud API fallback for unavailable local installations
-    - Intelligent dependency management
-    - Performance optimization
+    This encoder supports both 2D and 3D molecular representations with
+    automatic fallback to a placeholder implementation when unimol_tools
+    is not available.
     """
 
     def __init__(self,
@@ -66,76 +49,34 @@ class UniMolEncoder(BaseEncoder):
                  use_3d: bool = True,
                  max_atoms: int = 512,
                  device: Optional[str] = None,
-                 enable_cloud_fallback: bool = True,
-                 enable_process_isolation: bool = True,
                  **kwargs) -> None:
         """
-        Initialize UniMol encoder with smart environment management.
+        Initialize UniMol encoder.
 
         Args:
-            model_name: Name of the pre-trained UniMol model (default: "unimol_v1")
+            model_name: Name of the UniMol model to use (default: "unimol_v1")
             output_dim: Output embedding dimension (default: 512)
             use_3d: Whether to use 3D conformations (default: True)
             max_atoms: Maximum number of atoms to process (default: 512)
             device: Device to run the model on ("cpu", "cuda", or None for auto)
-            enable_cloud_fallback: Enable cloud API fallback (default: True)
-            enable_process_isolation: Enable process isolation (default: True)
             **kwargs: Additional parameters passed to BaseEncoder
         """
+        # Validate parameters using mixin
+        validated_params = self.validate_init_parameters(
+            output_dim=output_dim,
+            max_atoms=max_atoms
+        )
+        
         super().__init__(**kwargs)
-
-        self.logger = logging.getLogger(__name__)
 
         # Store configuration
         self.model_name = model_name
-        self.output_dim = output_dim
+        self.output_dim = validated_params['output_dim']
         self.use_3d = use_3d
-        self.max_atoms = max_atoms
-        self.enable_cloud_fallback = enable_cloud_fallback
-        self.enable_process_isolation = enable_process_isolation
+        self.max_atoms = validated_params['max_atoms']
 
-        # Check encoder readiness if advanced dependency check is available
-        if ADVANCED_DEPENDENCY_CHECK_AVAILABLE:
-            try:
-                is_ready, capability_level, status_msg = check_encoder_readiness('unimol')
-                self.logger.info(f"UniMol encoder readiness: {status_msg}")
-                if not is_ready:
-                    self.logger.warning("UniMol dependencies not fully available in current environment")
-            except Exception as e:
-                self.logger.warning(f"Failed to check UniMol readiness: {e}")
-
-        # Initialize smart environment manager if available
-        if SMART_ENVIRONMENT_AVAILABLE:
-            self.env_manager = get_environment_manager()
-            # Configure environment for UniMol
-            self.env_config = self.env_manager.configure_encoder_environment(
-                'unimol',
-                preferred_environment=EnvironmentType.PROCESS_ISOLATED if enable_process_isolation 
-                else EnvironmentType.LOCAL,
-                auto_configure=True
-            )
-        else:
-            self.env_manager = None  # type: ignore
-            self.env_config = None  # type: ignore
-
-        # Initialize cloud client if enabled
-        if enable_cloud_fallback and CLOUD_API_AVAILABLE:
-            try:
-                self.cloud_client = get_cloud_client()
-                self.cloud_available = self.cloud_client.health_check()
-            except Exception as e:
-                self.logger.warning(f"Cloud client initialization failed: {e}")
-                self.cloud_client = None  # type: ignore
-                self.cloud_available = False
-        else:
-            self.cloud_client = None  # type: ignore
-            self.cloud_available = False
-
-        # Set device
-        if device is None:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            self.device = torch.device(device)
+        # Set device using mixin
+        self.device = self.setup_device(device)
 
         # Initialize model
         self._is_real_model = False
@@ -143,45 +84,17 @@ class UniMolEncoder(BaseEncoder):
 
     def _load_model(self) -> Any:
         """
-        Load pre-trained UniMol model with smart environment management.
-
-        Uses process isolation or cloud fallback when needed.
+        Load pre-trained UniMol model.
         """
         try:
-            # Try to load real UniMol model in current environment
+            # Try to load real UniMol model
             return self._load_real_unimol()
         except ImportError:
-            self.logger.warning(
-                "unimol_tools not available in current environment.")
-            
-            # Try process isolation if enabled
-            if self.enable_process_isolation and self.env_manager:
-                try:
-                    self.logger.info("Attempting to load UniMol via process isolation")
-                    # This will be handled at encoding time
-                    self._is_real_model = False
-                    return self._load_placeholder_model()
-                except Exception as e:
-                    self.logger.warning(f"Process isolation failed: {e}")
-            
-            # Try cloud API if enabled
-            if self.cloud_available:
-                try:
-                    self.logger.info("Using cloud-based UniMol encoder as fallback")
-                    self._is_real_model = True
-                    # Model will be loaded on demand
-                    return None  # type: ignore
-                except Exception as e:
-                    self.logger.warning(f"Cloud encoder setup failed: {e}")
-            
-            # Fall back to placeholder
-            self.logger.info("Using placeholder UniMol implementation.")
+            self.logger.warning("unimol_tools not available. Using placeholder implementation.")
             self.logger.info("Install with: pip install unimol_tools")
             return self._load_placeholder_model()
-            
         except Exception as e:
-            self.logger.warning(
-                f"Failed to load real UniMol model ({e}), using placeholder.")
+            self.logger.warning(f"Failed to load real UniMol model ({e}), using placeholder.")
             return self._load_placeholder_model()
 
     def _load_real_unimol(self) -> Any:
@@ -353,9 +266,10 @@ class UniMolEncoder(BaseEncoder):
         except Exception:
             return None
 
+    @handle_encoding_errors(reraise_as=InvalidSMILESError)
     def _encode_single(self, smiles: str) -> np.ndarray:
         """
-        Encode a single SMILES string using UniMol with intelligent routing.
+        Encode a single SMILES string using UniMol.
 
         Args:
             smiles: SMILES string to encode
@@ -385,23 +299,9 @@ class UniMolEncoder(BaseEncoder):
             # Try to encode with real model first
             if self._is_real_model and self.model is not None:
                 return self._encode_with_real_model(smiles)
-            
-            # Try process isolation if enabled
-            elif self.enable_process_isolation and self.env_manager:
-                try:
-                    return self._encode_with_process_isolation(smiles)
-                except Exception as e:
-                    self.logger.warning(f"Process isolation failed for {smiles}: {e}")
-            
-            # Try cloud API if available
-            elif self.cloud_available and self.cloud_client:
-                try:
-                    return self._encode_with_cloud_api(smiles)
-                except Exception as e:
-                    self.logger.warning(f"Cloud API failed for {smiles}: {e}")
-            
-            # Fall back to placeholder model
-            return self._encode_with_placeholder_model(smiles, mol)
+            else:
+                # Fall back to placeholder model
+                return self._encode_with_placeholder_model(smiles, mol)
 
         except Exception as e:
             if isinstance(e, InvalidSMILESError):
@@ -453,56 +353,7 @@ class UniMolEncoder(BaseEncoder):
             self.logger.error(f"Real UniMol encoding failed: {e}")
             raise RuntimeError(f"Real UniMol encoding failed: {e}")
 
-    def _encode_with_process_isolation(self, smiles: str) -> np.ndarray:
-        """
-        Encode using process isolation.
-        """
-        if not self.env_manager:
-            raise RuntimeError("Environment manager not available")
-        
-        try:
-            result = self.env_manager.execute_encoder(
-                'unimol',
-                smiles,
-                {
-                    'model_name': self.model_name,
-                    'output_dim': self.output_dim,
-                    'use_3d': self.use_3d,
-                    'max_atoms': self.max_atoms
-                }
-            )
-            return result
-        except Exception as e:
-            raise RuntimeError(f"Process isolation encoding failed: {e}")
 
-    def _encode_with_cloud_api(self, smiles: str) -> np.ndarray:
-        """
-        Encode using cloud API.
-        """
-        try:
-            response = self.cloud_client.encode_single(
-                smiles=smiles,
-                encoder_type='unimol',
-                options={
-                    'model_name': self.model_name,
-                    'output_dim': self.output_dim,
-                    'use_3d': self.use_3d
-                }
-            )
-
-            if not response.success:
-                raise RuntimeError(f"Cloud API error: {response.error_message}")
-
-            embedding = np.array(response.embeddings, dtype=np.float32)
-
-            # Adjust dimension if needed
-            if len(embedding) != self.output_dim:
-                embedding = self._adjust_dimension(embedding)
-
-            return embedding
-
-        except Exception as e:
-            raise RuntimeError(f"Cloud API encoding failed: {e}")
 
     def _encode_with_placeholder_model(self, smiles: str, mol) -> np.ndarray:
         """
@@ -548,6 +399,7 @@ class UniMolEncoder(BaseEncoder):
         else:
             return embedding
 
+    @handle_batch_processing_errors(skip_invalid=True, log_skipped=True)
     def encode_batch(self, smiles_list: List[str], batch_size: int = 32) -> np.ndarray:
         """
         Encode a batch of SMILES strings with intelligent processing.

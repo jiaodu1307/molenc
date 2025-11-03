@@ -8,10 +8,21 @@ from torch import Tensor
 from molenc.core.base import BaseEncoder
 from molenc.core.registry import register_encoder
 from molenc.core.exceptions import InvalidSMILESError, EncoderInitializationError
+from molenc.core.dependency_utils import require_dependencies
+from molenc.core.encoder_utils import EncoderUtils
+from molenc.core.encoder_mixins import (
+    SMILESValidationMixin, 
+    ParameterValidationMixin, 
+    DeviceManagementMixin,
+    ModelLoadingMixin
+)
+from molenc.core.exception_decorators import handle_encoding_errors, handle_initialization_errors, handle_batch_processing_errors
 
 
 @register_encoder('chemberta')
-class ChemBERTaEncoder(BaseEncoder):
+@require_dependencies(['torch', 'transformers'], 'ChemBERTa')
+class ChemBERTaEncoder(BaseEncoder, SMILESValidationMixin, ParameterValidationMixin, 
+                      DeviceManagementMixin, ModelLoadingMixin):
     """ChemBERTa encoder.
 
     ChemBERTa is a RoBERTa-based transformer model pre-trained on molecular SMILES
@@ -39,45 +50,35 @@ class ChemBERTaEncoder(BaseEncoder):
         self.model_name = model_name
         self.max_length = max_length
         self.pooling_strategy = pooling_strategy
+        
+        # Validate parameters
+        EncoderUtils.validate_positive_int(max_length, "max_length")
+        EncoderUtils.validate_choice(pooling_strategy, ["cls", "mean", "max"], "pooling_strategy")
 
-        # Check dependencies
-        try:
-            import torch
-            import transformers
-        except ImportError as e:
-            from molenc.core.exceptions import DependencyError
-            missing_lib = str(e).split("'")[1] if "'" in str(
-                e) else "torch/transformers"
-            raise DependencyError(missing_lib, "chemberta")
+
 
         # Set device
-        if device is None:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            self.device = torch.device(device)
+        self.device = EncoderUtils.setup_device(device)
 
         # Initialize model and tokenizer
         self._load_model()
 
+    @handle_initialization_errors("ChemBERTa")
     def _load_model(self) -> None:
         """
         Load pre-trained ChemBERTa model and tokenizer.
         """
-        try:
-            from transformers import AutoTokenizer, AutoModel
+        from transformers import AutoTokenizer, AutoModel
 
-            # Load ChemBERTa tokenizer and model
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            self.model = AutoModel.from_pretrained(self.model_name)
+        # Load ChemBERTa tokenizer and model
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.model = AutoModel.from_pretrained(self.model_name)
 
-            self.model.to(self.device)
-            self.model.eval()
+        self.model.to(self.device)
+        self.model.eval()
 
-            # Get hidden size
-            self.hidden_size = self.model.config.hidden_size
-
-        except Exception as e:
-            raise EncoderInitializationError(f"Failed to load ChemBERTa model: {str(e)}")
+        # Get hidden size
+        self.hidden_size = self.model.config.hidden_size
 
     def _tokenize_smiles(self, smiles: str) -> Dict[str, Tensor]:
         """
@@ -133,6 +134,7 @@ class ChemBERTaEncoder(BaseEncoder):
         else:
             raise ValueError(f"Unknown pooling strategy: {self.pooling_strategy}")
 
+    @handle_encoding_errors(reraise_as=InvalidSMILESError)
     def _encode_single(self, smiles: str) -> np.ndarray:
         """
         Encode a single SMILES string using ChemBERTa.
@@ -146,34 +148,29 @@ class ChemBERTaEncoder(BaseEncoder):
         Raises:
             InvalidSMILESError: If SMILES is invalid
         """
-        try:
-            # Basic SMILES validation
-            if not smiles or not isinstance(smiles, str):
-                raise InvalidSMILESError(smiles, "Invalid SMILES format")
+        # Basic SMILES validation
+        if not smiles or not isinstance(smiles, str):
+            raise InvalidSMILESError(smiles, "Invalid SMILES format")
 
-            # Tokenize SMILES
-            inputs = self._tokenize_smiles(smiles)
+        # Tokenize SMILES
+        inputs = self._tokenize_smiles(smiles)
 
-            # Get embeddings
-            with torch.no_grad():
-                outputs = self.model(**inputs)
-                hidden_states = outputs.last_hidden_state
+        # Get embeddings
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+            hidden_states = outputs.last_hidden_state
 
-                # Pool embeddings
-                pooled_embedding = self._pool_embeddings(
-                    hidden_states, inputs["attention_mask"]
-                )
+            # Pool embeddings
+            pooled_embedding = self._pool_embeddings(
+                hidden_states, inputs["attention_mask"]
+            )
 
-            # Convert to numpy
-            embedding = pooled_embedding.cpu().numpy().squeeze()
+        # Convert to numpy
+        embedding = pooled_embedding.cpu().numpy().squeeze()
 
-            return embedding.astype(np.float32)
+        return embedding.astype(np.float32)
 
-        except Exception as e:
-            if isinstance(e, InvalidSMILESError):
-                raise e
-            raise InvalidSMILESError(smiles, f"ChemBERTa encoding failed: {str(e)}")
-
+    @handle_batch_processing_errors(skip_invalid=True, log_skipped=True)
     def encode_batch(self, smiles_list: List[str]) -> np.ndarray:
         """
         Encode a batch of SMILES strings efficiently.
@@ -187,37 +184,32 @@ class ChemBERTaEncoder(BaseEncoder):
         if not smiles_list:
             return np.array([], dtype=np.float32)
 
-        try:
-            # Tokenize all SMILES
-            all_inputs: List[Dict[str, Tensor]] = []
-            for smiles in smiles_list:
-                inputs = self._tokenize_smiles(smiles)
-                all_inputs.append(inputs)
+        # Tokenize all SMILES
+        all_inputs: List[Dict[str, Tensor]] = []
+        for smiles in smiles_list:
+            inputs = self._tokenize_smiles(smiles)
+            all_inputs.append(inputs)
 
-            # Batch the inputs
-            batch_inputs = {
-                "input_ids": torch.cat([inp["input_ids"] for inp in all_inputs], dim=0),
-                "attention_mask": torch.cat([inp["attention_mask"] for inp in all_inputs], dim=0)
-            }
+        # Batch the inputs
+        batch_inputs = {
+            "input_ids": torch.cat([inp["input_ids"] for inp in all_inputs], dim=0),
+            "attention_mask": torch.cat([inp["attention_mask"] for inp in all_inputs], dim=0)
+        }
 
-            # Get embeddings
-            with torch.no_grad():
-                outputs = self.model(**batch_inputs)
-                hidden_states = outputs.last_hidden_state
+        # Get embeddings
+        with torch.no_grad():
+            outputs = self.model(**batch_inputs)
+            hidden_states = outputs.last_hidden_state
 
-                # Pool embeddings
-                pooled_embeddings = self._pool_embeddings(
-                    hidden_states, batch_inputs["attention_mask"]
-                )
+            # Pool embeddings
+            pooled_embeddings = self._pool_embeddings(
+                hidden_states, batch_inputs["attention_mask"]
+            )
 
-            # Convert to numpy
-            embeddings = pooled_embeddings.cpu().numpy()
+        # Convert to numpy
+        embeddings = pooled_embeddings.cpu().numpy()
 
-            return embeddings.astype(np.float32)
-
-        except Exception:
-            # Fallback to single encoding
-            return super().encode_batch(smiles_list)
+        return embeddings.astype(np.float32)
 
     def get_output_dim(self) -> int:
         """

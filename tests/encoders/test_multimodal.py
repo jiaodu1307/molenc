@@ -7,6 +7,12 @@ from unittest.mock import Mock, patch, MagicMock
 
 from molenc.core.exceptions import InvalidSMILESError, DependencyError, EncoderInitializationError
 
+# Import with error handling for optional dependencies
+try:
+    from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
+except ImportError:
+    UniMolEncoder = None
+
 
 class TestUniMolEncoder:
     """Tests for UniMolEncoder."""
@@ -15,8 +21,6 @@ class TestUniMolEncoder:
     def test_unimol_encoder_initialization_default(self):
         """Test UniMolEncoder initialization with default parameters."""
         with patch('molenc.encoders.representations.multimodal.unimol.UniMolEncoder._load_model'):
-            from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
-            
             encoder = UniMolEncoder()
             assert encoder.model_name == 'unimol_v1'
             assert encoder.output_dim == 512
@@ -27,7 +31,6 @@ class TestUniMolEncoder:
     def test_unimol_encoder_initialization_custom(self):
         """Test UniMolEncoder initialization with custom parameters."""
         with patch('molenc.encoders.representations.multimodal.unimol.UniMolEncoder._load_model'):
-            from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
             
             encoder = UniMolEncoder(
                 model_name='unimol_v2',
@@ -57,7 +60,6 @@ class TestUniMolEncoder:
                     mock_check.return_value = (False, MockDependencyLevel.PARTIAL, "Partial dependencies available. Available: ['rdkit', 'unimol_tools'], Missing: ['torch']")
                     
                     with pytest.raises(DependencyError) as exc_info:
-                        from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
                         UniMolEncoder()
                     assert "torch" in str(exc_info.value)
                     assert "unimol" in str(exc_info.value)
@@ -77,7 +79,6 @@ class TestUniMolEncoder:
                     mock_check.return_value = (False, MockDependencyLevel.PARTIAL, "Partial dependencies available. Available: ['torch', 'unimol_tools'], Missing: ['rdkit']")
                     
                     with pytest.raises(DependencyError) as exc_info:
-                        from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
                         UniMolEncoder()
                     assert "rdkit" in str(exc_info.value)
                     assert "unimol" in str(exc_info.value)
@@ -86,7 +87,6 @@ class TestUniMolEncoder:
     @pytest.mark.rdkit
     def test_unimol_encode_single_valid_smiles(self, sample_smiles):
         """Test encoding a single valid SMILES string."""
-        from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
         
         # Mock the model and preprocessing
         with patch('molenc.encoders.representations.multimodal.unimol.UniMolEncoder._load_model') as mock_load:
@@ -113,7 +113,6 @@ class TestUniMolEncoder:
     @pytest.mark.rdkit
     def test_unimol_encode_batch(self, sample_smiles):
         """Test batch encoding of SMILES strings."""
-        from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
         
         # Mock the model and preprocessing
         with patch('molenc.encoders.representations.multimodal.unimol.UniMolEncoder._load_model') as mock_load:
@@ -147,7 +146,6 @@ class TestUniMolEncoder:
     @pytest.mark.rdkit
     def test_unimol_encode_invalid_smiles(self, invalid_smiles):
         """Test encoding invalid SMILES strings."""
-        from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
         
         # Mock the entire encoder initialization to avoid loading real model
         with patch.object(UniMolEncoder, '__init__', return_value=None):
@@ -183,7 +181,6 @@ class TestUniMolEncoder:
     @pytest.mark.torch
     def test_unimol_get_output_dim(self):
         """Test getting output dimension."""
-        from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
         
         with patch('molenc.encoders.representations.multimodal.unimol.UniMolEncoder._load_model'):
             encoder = UniMolEncoder(output_dim=1024)
@@ -192,7 +189,6 @@ class TestUniMolEncoder:
     @pytest.mark.torch
     def test_unimol_model_loading_failure(self):
         """Test handling of model loading failures."""
-        from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
         
         # Mock _load_real_unimol to raise an exception
         with patch('molenc.encoders.representations.multimodal.unimol.UniMolEncoder._load_real_unimol') as mock_load_real:
@@ -212,7 +208,6 @@ class TestUniMolEncoder:
     @pytest.mark.rdkit
     def test_unimol_3d_vs_2d_mode(self, sample_smiles):
         """Test difference between 3D and 2D modes."""
-        from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
         
         # Mock the model and preprocessing
         with patch('molenc.encoders.representations.multimodal.unimol.UniMolEncoder._load_model') as mock_load:
@@ -249,7 +244,6 @@ class TestUniMolEncoder:
     @pytest.mark.rdkit
     def test_unimol_max_atoms_handling(self, sample_smiles):
         """Test handling of molecules with different numbers of atoms."""
-        from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
         
         # Mock the model and preprocessing
         with patch('molenc.encoders.representations.multimodal.unimol.UniMolEncoder._load_model') as mock_load:
@@ -282,7 +276,6 @@ class TestUniMolEncoder:
     @pytest.mark.torch
     def test_unimol_device_handling(self):
         """Test device handling (CPU/GPU)."""
-        from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
         
         with patch('molenc.encoders.representations.multimodal.unimol.UniMolEncoder._load_model') as mock_load:
             # Test CPU device
@@ -301,7 +294,6 @@ class TestUniMolEncoder:
     @pytest.mark.torch
     def test_unimol_repr(self):
         """Test string representation."""
-        from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
         
         with patch('molenc.encoders.representations.multimodal.unimol.UniMolEncoder._load_model'):
             encoder = UniMolEncoder(
@@ -325,7 +317,6 @@ class TestMultimodalEncoderUtils:
     @pytest.mark.rdkit
     def test_molecule_preprocessing(self, sample_smiles):
         """Test molecule preprocessing for multimodal encoders."""
-        from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
         
         with patch('molenc.encoders.representations.multimodal.unimol.UniMolEncoder._load_model'):
             encoder = UniMolEncoder()
@@ -351,7 +342,6 @@ class TestMultimodalEncoderUtils:
     @pytest.mark.torch
     def test_conformer_generation(self, sample_smiles):
         """Test 3D conformer generation for multimodal encoders."""
-        from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
         
         with patch('molenc.encoders.representations.multimodal.unimol.UniMolEncoder._load_model'):
             encoder = UniMolEncoder(use_3d=True)
@@ -378,7 +368,6 @@ class TestMultimodalEncoderUtils:
     @pytest.mark.torch
     def test_atom_feature_extraction(self, sample_smiles):
         """Test atom feature extraction for multimodal encoders."""
-        from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
         
         with patch('molenc.encoders.representations.multimodal.unimol.UniMolEncoder._load_model'):
             encoder = UniMolEncoder()
@@ -407,7 +396,6 @@ class TestMultimodalEncoderIntegration:
     @pytest.mark.rdkit
     def test_multimodal_encoder_consistency(self, sample_smiles):
         """Test that multimodal encodings are consistent across multiple calls."""
-        from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
         
         # Mock with deterministic behavior
         with patch('molenc.encoders.representations.multimodal.unimol.UniMolEncoder._load_model') as mock_load:
@@ -439,7 +427,6 @@ class TestMultimodalEncoderIntegration:
     @pytest.mark.rdkit
     def test_multimodal_encoder_different_molecules(self, sample_smiles):
         """Test that different molecules produce different embeddings."""
-        from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
         
         if len(sample_smiles) < 2:
             pytest.skip("Need at least 2 different SMILES for comparison")
@@ -484,7 +471,6 @@ class TestMultimodalEncoderIntegration:
     @pytest.mark.slow
     def test_multimodal_encoder_performance(self, sample_smiles):
         """Test multimodal encoder performance with larger batches."""
-        from molenc.encoders.representations.multimodal.unimol import UniMolEncoder
         
         # Mock for performance testing
         with patch('molenc.encoders.representations.multimodal.unimol.UniMolEncoder._load_model') as mock_load:

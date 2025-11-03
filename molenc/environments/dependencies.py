@@ -7,6 +7,17 @@ from typing import Dict, List, Optional, Tuple, Any
 from packaging import version
 import warnings
 
+# Import from our unified dependency utilities
+from ..core.dependency_utils import (
+    check_optional_dependency,
+    is_package_available,
+    check_dependencies as check_deps_basic,
+    get_missing_dependencies,
+    require_dependencies as require_deps_basic,
+    warn_missing_optional,
+    get_dependency_status
+)
+
 
 class DependencyChecker:
     """Check and manage package dependencies."""
@@ -69,10 +80,9 @@ class DependencyChecker:
             'install_hint': 'pip install plotly'
         }
     }
-    
+
     def __init__(self) -> None:
         self.logger = logging.getLogger(__name__)
-        self._dependency_cache: Dict[str, Tuple[bool, Optional[str], Optional[str]]] = {}
     
     def check_package(self, package_name: str, 
                      min_version: Optional[str] = None) -> Tuple[bool, Optional[str], Optional[str]]:
@@ -86,10 +96,9 @@ class DependencyChecker:
         Returns:
             Tuple of (is_available, installed_version, error_message)
         """
-        # Check cache first
-        cache_key = f"{package_name}:{min_version}"
-        if cache_key in self._dependency_cache:
-            return self._dependency_cache[cache_key]
+        # Use basic availability check first
+        if not is_package_available(package_name):
+            return (False, None, f"Package {package_name} not found")
         
         try:
             # Try to import the package
@@ -107,7 +116,6 @@ class DependencyChecker:
                             installed_version = str(version_val)
                             break
                     except Exception:
-                        # If we can't get the version, continue to next attribute
                         continue
             
             # Check version requirement
@@ -118,26 +126,21 @@ class DependencyChecker:
                         required_version = min_version[2:]
                         if version.parse(installed_version) < version.parse(required_version):
                             error_msg = f"Version mismatch: {installed_version} < required {required_version}"
-                            result: Tuple[bool, Optional[str], Optional[str]] = (False, installed_version, error_msg)
+                            return (False, installed_version, error_msg)
                         else:
-                            result = (True, installed_version, None)
+                            return (True, installed_version, None)
                     else:
-                        # Simple version check
-                        result = (True, installed_version, None)
+                        return (True, installed_version, None)
                 except Exception as e:
                     self.logger.warning(f"Could not parse version for {package_name}: {e}")
-                    result = (True, installed_version, None)
+                    return (True, installed_version, None)
             else:
-                result = (True, installed_version, None)
+                return (True, installed_version, None)
             
         except ImportError as e:
-            result = (False, None, f"Package not found: {str(e)}")
+            return (False, None, f"Package not found: {str(e)}")
         except Exception as e:
-            result = (False, None, f"Error checking package: {str(e)}")
-        
-        # Cache result
-        self._dependency_cache[cache_key] = result
-        return result
+            return (False, None, f"Error checking package: {str(e)}")
     
     def check_core_dependencies(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -292,37 +295,33 @@ class DependencyChecker:
     
     def print_dependency_report(self, features: Optional[List[str]] = None) -> None:
         """
-        Print a formatted dependency report.
+        Print a comprehensive dependency report.
         
         Args:
             features: List of features to check dependencies for
         """
         results = self.check_all_dependencies(features)
         
-        print("\n" + "="*60)
-        print("MolEnc Dependency Report")
-        print("="*60)
-        
-        print(f"\nPython Version: {results['python_version']}")
-        print(f"Platform: {results['platform']}")
+        print("Dependency Report")
+        print("=" * 50)
         
         # Core dependencies
         print("\nCore Dependencies:")
-        print("-" * 30)
+        print("-" * 20)
         for name, info in results['core'].items():
             status = "✓" if info['available'] else "✗"
-            version_info = f" ({info['installed_version']})" if info['installed_version'] else ""
+            version_info = f" (v{info['installed_version']})" if info['installed_version'] else ""
             print(f"{status} {name}{version_info}")
             if not info['available'] and info['error']:
                 print(f"    Error: {info['error']}")
         
         # Optional dependencies
         print("\nOptional Dependencies:")
-        print("-" * 30)
+        print("-" * 25)
         for name, info in results['optional'].items():
             status = "✓" if info['available'] else "✗"
-            version_info = f" ({info['installed_version']})" if info['installed_version'] else ""
-            features_info = f" [Features: {', '.join(info['features'])}]" if 'features' in info else ""
+            version_info = f" (v{info['installed_version']})" if info['installed_version'] else ""
+            features_info = f" [{', '.join(info['features'])}]"
             print(f"{status} {name}{version_info}{features_info}")
             if not info['available']:
                 print(f"    Install: {info['install_hint']}")
@@ -375,58 +374,26 @@ def require_dependencies(dependencies: List[str],
         dependencies: List of required dependency names
         feature_name: Name of the feature (for error messages)
     """
-    def decorator(func_or_class: Any) -> Any:
-        def wrapper(*args, **kwargs) -> Any:  # type: ignore
-            checker = DependencyChecker()
-            missing: List[str] = []
-            
-            for dep in dependencies:
-                if dep in checker.CORE_DEPENDENCIES:
-                    dep_version = checker.CORE_DEPENDENCIES[dep]
-                    is_available, _, _ = checker.check_package(dep, dep_version)
-                elif dep in checker.OPTIONAL_DEPENDENCIES:
-                    dep_info = checker.OPTIONAL_DEPENDENCIES[dep]
-                    package_name = dep_info['package']
-                    min_version = dep_info['version']
-                    is_available, _, _ = checker.check_package(package_name, min_version)
-                else:
-                    is_available, _, _ = checker.check_package(dep)
-                
-                if not is_available:
-                    missing.append(dep)
-            
-            if missing:
-                feature_msg = f" for {feature_name}" if feature_name else ""
-                raise ImportError(
-                    f"Missing required dependencies{feature_msg}: {', '.join(missing)}. "
-                    f"Please install them to use this functionality."
-                )
-            
-            return func_or_class(*args, **kwargs)
+    def decorator(func_or_class):
+        # Use basic dependency checking
+        missing = get_missing_dependencies(dependencies)
+        if missing:
+            feature_desc = f" for {feature_name}" if feature_name else ""
+            warn_missing_optional(dependencies, f"Missing dependencies{feature_desc}")
         
-        return wrapper
+        return func_or_class
+    
     return decorator
 
 
-def warn_missing_optional(dependency: str, feature_name: str) -> None:
+def warn_missing_optional(dependencies: List[str], 
+                         message: Optional[str] = None) -> None:
     """
-    Issue a warning for missing optional dependencies.
+    Warn about missing optional dependencies.
     
     Args:
-        dependency: Name of the missing dependency
-        feature_name: Name of the feature that requires it
+        dependencies: List of dependency names
+        message: Custom warning message
     """
-    checker = DependencyChecker()
-    
-    if dependency in checker.OPTIONAL_DEPENDENCIES:
-        install_hint = checker.OPTIONAL_DEPENDENCIES[dependency]['install_hint']
-        warnings.warn(
-            f"Optional dependency '{dependency}' not found for {feature_name}. "
-            f"Install it with: {install_hint}",
-            UserWarning
-        )
-    else:
-        warnings.warn(
-            f"Optional dependency '{dependency}' not found for {feature_name}.",
-            UserWarning
-        )
+    # Use the unified warning function
+    warn_missing_optional(dependencies, message)
