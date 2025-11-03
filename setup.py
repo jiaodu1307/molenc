@@ -44,6 +44,10 @@ optional_requirements = {
             'gensim>=4.0.0',
             'transformers>=4.20.0',
         ],
+    "molbert": [
+        "torch>=1.12.0",
+        "transformers>=4.20.0",
+    ],
     "visualization": [
         "matplotlib>=3.5.0",
         "seaborn>=0.11.0",
@@ -51,6 +55,9 @@ optional_requirements = {
     ],
     "system": [
         "psutil>=5.9.0",
+    ],
+    "environment": [
+        "virtualenv>=20.0.0",
     ],
     "dev": [
         "pytest>=6.0.0",
