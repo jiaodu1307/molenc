@@ -238,8 +238,6 @@ def _register_builtin_encoders() -> None:
     # Representations - Graph-based
     _registry.register('gcn', None,  # type: ignore
                        'molenc.encoders.representations.graph.gcn')
-    _registry.register('gat', None,  # type: ignore
-                       'molenc.encoders.representations.graph.gat')
 
     # Representations - Multimodal
     _registry.register(
