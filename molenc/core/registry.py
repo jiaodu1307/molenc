@@ -14,7 +14,7 @@ class EncoderRegistry:
         self._encoders: Dict[str, Type[BaseEncoder]] = {}
         self._encoder_modules: Dict[str, str] = {}
 
-    def register(self, name: str, encoder_class: Type[BaseEncoder], 
+    def register(self, name: str, encoder_class: Optional[Type[BaseEncoder]] = None, 
                  module_path: Optional[str] = None) -> None:
         """
         Register an encoder class.
@@ -24,7 +24,8 @@ class EncoderRegistry:
             encoder_class: The encoder class to register
             module_path: Optional module path for lazy loading
         """
-        self._encoders[name] = encoder_class
+        if encoder_class is not None:
+            self._encoders[name] = encoder_class
         if module_path:
             self._encoder_modules[name] = module_path
 
@@ -43,8 +44,7 @@ class EncoderRegistry:
             EncoderNotFoundError: If encoder is not found
             EncoderInitializationError: If encoder fails to initialize
         """
-        if name not in self._encoders:
-            # Try lazy loading
+        if name not in self._encoders or self._encoders.get(name) is None:
             if name in self._encoder_modules:
                 self._lazy_load_encoder(name)
             else:
@@ -226,23 +226,18 @@ def _register_builtin_encoders() -> None:
     """Register built-in encoders with lazy loading."""
     # Descriptors
     _registry.register(
-        'morgan', None,  # type: ignore
-        'molenc.encoders.descriptors.fingerprints.morgan')
-    _registry.register('maccs', None,  # type: ignore
-                       'molenc.encoders.descriptors.fingerprints.maccs')
+        'morgan', module_path='molenc.encoders.descriptors.fingerprints.morgan')
+    _registry.register('maccs', module_path='molenc.encoders.descriptors.fingerprints.maccs')
 
     # Representations - Sequence-based
-    _registry.register('chemberta', None,  # type: ignore
-                       'molenc.encoders.representations.sequence.chemberta')
+    _registry.register('chemberta', module_path='molenc.encoders.representations.sequence.chemberta')
 
     # Representations - Graph-based
-    _registry.register('gcn', None,  # type: ignore
-                       'molenc.encoders.representations.graph.gcn')
+    _registry.register('gcn', module_path='molenc.encoders.representations.graph.gcn')
 
     # Representations - Multimodal
     _registry.register(
-        'unimol', None,  # type: ignore
-        'molenc.encoders.representations.multimodal.unimol')
+        'unimol', module_path='molenc.encoders.representations.multimodal.unimol')
 
 
 # Register built-in encoders on module import

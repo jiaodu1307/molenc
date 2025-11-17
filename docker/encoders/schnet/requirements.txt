@@ -1,0 +1,24 @@
+# Core dependencies
+numpy>=1.21.0
+torch>=1.9.0
+rdkit>=2022.3.1
+scipy>=1.7.0
+scikit-learn>=1.0.0
+
+# API and web framework
+fastapi>=0.68.0
+uvicorn[standard]>=0.15.0
+pydantic>=1.8.0
+
+# Chemistry and molecular processing
+openbabel-wheel>=3.1.0
+networkx>=2.6.0
+
+# Utilities
+python-multipart>=0.0.5
+aiofiles>=0.7.0
+
+# Development and testing
+pytest>=6.2.0
+pytest-asyncio>=0.15.0
+httpx>=0.24.0

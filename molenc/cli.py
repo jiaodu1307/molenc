@@ -14,17 +14,24 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 
 try:
-    from . import MolEncoder, check_dependencies, EnvironmentManager
+    from .core.encoder_factory import (
+        get_encoder_factory,
+        EncoderMode,
+        EncoderConfig,
+    )
     from .core.exceptions import MolEncError, EncoderNotFoundError
     from .preprocessing import preprocess_smiles_list
+    from .environments.advanced_dependency_manager import DependencyLevel
 except ImportError:
-    # Fallback for direct execution
     import molenc
-    MolEncoder = molenc.MolEncoder
-    check_dependencies = molenc.check_dependencies
-    EnvironmentManager = molenc.EnvironmentManager
+    from molenc.core.encoder_factory import (
+        get_encoder_factory,
+        EncoderMode,
+        EncoderConfig,
+    )
     from molenc.core.exceptions import MolEncError, EncoderNotFoundError
     from molenc.preprocessing import preprocess_smiles_list
+    from molenc.environments.advanced_dependency_manager import DependencyLevel
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -61,19 +68,43 @@ def encode_command(args: argparse.Namespace) -> int:
             )
             print(f"After preprocessing: {len(smiles_list)} SMILES", file=sys.stderr)
         
-        # Initialize encoder
-        print(f"Initializing {args.encoder} encoder...", file=sys.stderr)
+        # Initialize encoder via factory
+        print(f"Initializing {args.encoder} encoder (mode={args.mode})...", file=sys.stderr)
         encoder_kwargs = {}
+        if args.preset:
+            from .core.config import Config
+            preset = Config.from_preset(args.preset)
+            encoder_kwargs.update(preset.to_dict())
         if args.config:
             with open(args.config, 'r') as f:
                 encoder_kwargs = json.load(f)
+        if args.backend == 'http' and 'base_url' not in encoder_kwargs:
+            import os
+            env_url = os.environ.get('MOLENC_REMOTE_URL')
+            if env_url:
+                encoder_kwargs['base_url'] = env_url
         
-        encoder = MolEncoder(args.encoder, **encoder_kwargs)
+        factory = get_encoder_factory()
+        config = EncoderConfig(
+            mode=EncoderMode(args.mode),
+            allow_fallback=True,
+            auto_install=args.auto_install,
+            max_dependency_level=DependencyLevel[args.dependency_level],
+            user_preferences={'backend': args.backend} if args.backend else None,
+        )
+        encoder = factory.create_encoder(args.encoder, config=config, **encoder_kwargs)
         
         # Encode molecules
         print(f"Encoding {len(smiles_list)} molecules...", file=sys.stderr)
         if args.batch_size and args.batch_size > 1:
-            vectors = encoder.encode_batch(smiles_list, batch_size=args.batch_size)
+            bs = args.batch_size
+            all_vecs = []
+            for i in range(0, len(smiles_list), bs):
+                chunk = smiles_list[i:i+bs]
+                arr = encoder.encode_batch(chunk)
+                for row in arr:
+                    all_vecs.append(row)
+            vectors = all_vecs
         else:
             vectors = [encoder.encode(smiles) for smiles in smiles_list]
         
@@ -88,7 +119,7 @@ def encode_command(args: argparse.Namespace) -> int:
                 result = {
                     'encoder': args.encoder,
                     'smiles': smiles_list,
-                    'vectors': [vec.tolist() for vec in vectors]
+                    'vectors': [vec.tolist() if hasattr(vec, 'tolist') else vec for vec in vectors]
                 }
                 json.dump(result, output_file, indent=2)
             elif args.format == 'csv':
@@ -122,20 +153,18 @@ def encode_command(args: argparse.Namespace) -> int:
 def list_encoders_command(args: argparse.Namespace) -> int:
     """Handle the list-encoders command."""
     try:
-        from .core.registry import get_available_encoders
-        
-        encoders = get_available_encoders()
+        factory = get_encoder_factory()
+        encoders = factory.get_available_encoders()
         
         if args.format == 'json':
             print(json.dumps(encoders, indent=2))
         else:
             print("Available Encoders:")
             print("=" * 50)
-            for name, info in encoders.items():
-                status = "✓" if info.get('available', False) else "✗"
-                print(f"{status} {name:20} - {info.get('description', 'No description')}")
-                if not info.get('available', False) and 'missing_deps' in info:
-                    print(f"    Missing: {', '.join(info['missing_deps'])}")
+            for name, variants in encoders.items():
+                status = "✓" if variants else "✗"
+                variants_str = ', '.join(variants) if variants else 'None'
+                print(f"{status} {name:20} - variants: {variants_str}")
         
         return 0
         
@@ -172,6 +201,120 @@ def check_deps_command(args: argparse.Namespace) -> int:
         
     except Exception as e:
         print(f"Error checking dependencies: {e}", file=sys.stderr)
+        return 1
+
+
+def status_command(args: argparse.Namespace) -> int:
+    try:
+        from .core.encoder_factory import get_encoder_factory
+        factory = get_encoder_factory()
+        report = factory.get_encoder_status(args.type) if args.type else factory.get_encoder_status()
+        print(report)
+        return 0
+    except Exception as e:
+        print(f"Error showing status: {e}", file=sys.stderr)
+        return 1
+
+
+def compare_command(args: argparse.Namespace) -> int:
+    try:
+        # Read inputs
+        if args.input == '-':
+            smiles_list = [line.strip() for line in sys.stdin if line.strip()]
+        else:
+            with open(args.input, 'r') as f:
+                smiles_list = [line.strip() for line in f if line.strip()]
+        if not smiles_list:
+            print("Error: No SMILES found in input", file=sys.stderr)
+            return 1
+
+        from .core.encoder_factory import get_encoder_factory, EncoderMode, EncoderConfig
+        from .environments.advanced_dependency_manager import DependencyLevel
+        factory = get_encoder_factory()
+
+        # Prepare encoders
+        kwargs1 = {}
+        kwargs2 = {}
+        if args.preset1:
+            from .core.config import Config
+            kwargs1.update(Config.from_preset(args.preset1).to_dict())
+        if args.preset2:
+            from .core.config import Config
+            kwargs2.update(Config.from_preset(args.preset2).to_dict())
+
+        # Inject base_url for http backend from env if needed
+        import os
+        if args.backend1 == 'http' and 'base_url' not in kwargs1:
+            env_url = os.environ.get('MOLENC_REMOTE_URL')
+            if env_url:
+                kwargs1['base_url'] = env_url
+        if args.backend2 == 'http' and 'base_url' not in kwargs2:
+            env_url = os.environ.get('MOLENC_REMOTE_URL')
+            if env_url:
+                kwargs2['base_url'] = env_url
+
+        config1 = EncoderConfig(
+            mode=EncoderMode(args.mode1),
+            allow_fallback=True,
+            auto_install=False,
+            max_dependency_level=DependencyLevel.FULL,
+            user_preferences={'backend': args.backend1} if args.backend1 else None,
+        )
+        config2 = EncoderConfig(
+            mode=EncoderMode(args.mode2),
+            allow_fallback=True,
+            auto_install=False,
+            max_dependency_level=DependencyLevel.FULL,
+            user_preferences={'backend': args.backend2} if args.backend2 else None,
+        )
+
+        enc1 = factory.create_encoder(args.encoder1, config=config1, **kwargs1)
+        enc2 = factory.create_encoder(args.encoder2, config=config2, **kwargs2)
+
+        # Encode and compare
+        bs = args.batch_size or 0
+        if bs and bs > 1:
+            v1 = enc1.encode_batch(smiles_list)
+            v2 = enc2.encode_batch(smiles_list)
+        else:
+            v1 = np.vstack([enc1.encode(s) for s in smiles_list])
+            v2 = np.vstack([enc2.encode(s) for s in smiles_list])
+
+        # Metrics and report
+        import numpy as np, time, psutil
+        report: Dict[str, Any] = {
+            'smiles_count': len(smiles_list),
+            'shape_a': list(v1.shape),
+            'shape_b': list(v2.shape),
+        }
+        # Timing: rough measure using encode times already tracked in factory not available here, so remeasure single pass
+        t0 = time.time(); _ = enc1.encode_batch(smiles_list); t1 = time.time(); _ = enc2.encode_batch(smiles_list); t2 = time.time()
+        report['encode_time_a'] = t1 - t0
+        report['encode_time_b'] = t2 - t1
+        # Memory snapshot
+        process = psutil.Process()
+        mem_info = process.memory_info()
+        report['rss_bytes'] = mem_info.rss
+        # Difference
+        if v1.shape == v2.shape and v1.size > 0:
+            report['l2_diff'] = np.linalg.norm(v1 - v2, axis=1).tolist()
+        else:
+            report['shape_mismatch'] = [list(v1.shape), list(v2.shape)]
+        # Optional CSV output
+        if hasattr(args, 'format') and args.format == 'csv':
+            import csv
+            writer = csv.writer(sys.stdout)
+            writer.writerow(['smiles_count','shape_a','shape_b','encode_time_a','encode_time_b','rss_bytes'])
+            writer.writerow([report['smiles_count'], report['shape_a'], report['shape_b'], report['encode_time_a'], report['encode_time_b'], report['rss_bytes']])
+            if 'l2_diff' in report:
+                writer.writerow(['l2_diff'] + report['l2_diff'])
+            else:
+                writer.writerow(['shape_mismatch'] + report.get('shape_mismatch', []))
+        else:
+            print(json.dumps(report, indent=2))
+        return 0
+    except Exception as e:
+        print(f"Error comparing encoders: {e}", file=sys.stderr)
         return 1
 
 
@@ -299,6 +442,32 @@ def create_parser() -> argparse.ArgumentParser:
         help='JSON config file for encoder parameters'
     )
     encode_parser.add_argument(
+        '--mode',
+        choices=[m.value for m in EncoderMode],
+        default='auto',
+        help='Encoder selection mode'
+    )
+    encode_parser.add_argument(
+        '--auto-install',
+        action='store_true',
+        help='Auto-install missing dependencies when possible'
+    )
+    encode_parser.add_argument(
+        '--dependency-level',
+        choices=[lvl.name for lvl in DependencyLevel],
+        default='FULL',
+        help='Max dependency installation level'
+    )
+    encode_parser.add_argument(
+        '--backend',
+        choices=['local', 'venv', 'conda', 'docker', 'http'],
+        help='Preferred execution backend'
+    )
+    encode_parser.add_argument(
+        '--preset',
+        help='Load encoder configuration preset'
+    )
+    encode_parser.add_argument(
         '--batch-size', '-b',
         type=int,
         help='Batch size for encoding'
@@ -367,6 +536,33 @@ def create_parser() -> argparse.ArgumentParser:
         default='table',
         help='Output format (default: table)'
     )
+
+    # Encoder status command
+    status_parser = subparsers.add_parser(
+        'status',
+        help='Show encoder selection status report'
+    )
+    status_parser.add_argument(
+        '--type', '-t',
+        help='Encoder type (e.g., fingerprint, transformer, gcn)'
+    )
+
+    # Compare encoders command
+    compare_parser = subparsers.add_parser(
+        'compare',
+        help='Compare outputs from two encoders on the same input'
+    )
+    compare_parser.add_argument('encoder1', help='First encoder (e.g., morgan)')
+    compare_parser.add_argument('encoder2', help='Second encoder (e.g., morgan)')
+    compare_parser.add_argument('--input', '-i', default='-', help='Input file or stdin (-)')
+    compare_parser.add_argument('--mode1', default='auto', help='Mode for first encoder')
+    compare_parser.add_argument('--mode2', default='auto', help='Mode for second encoder')
+    compare_parser.add_argument('--backend1', choices=['local','venv','conda','docker','http'])
+    compare_parser.add_argument('--backend2', choices=['local','venv','conda','docker','http'])
+    compare_parser.add_argument('--preset1')
+    compare_parser.add_argument('--preset2')
+    compare_parser.add_argument('--batch-size', '-b', type=int)
+    compare_parser.add_argument('--format', choices=['json','csv'], default='json')
     
     return parser
 
@@ -389,6 +585,10 @@ def main() -> int:
             return list_encoders_command(args)
         elif args.command == 'check-deps':
             return check_deps_command(args)
+        elif args.command == 'status':
+            return status_command(args)
+        elif args.command == 'compare':
+            return compare_command(args)
         elif args.command == 'env':
             return env_command(args)
         else:

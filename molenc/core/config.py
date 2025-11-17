@@ -37,6 +37,41 @@ class Config:
             'encoder_name': 'chemberta',
             'model_name': 'seyonec/ChemBERTa-zinc-base-v1',
             'handle_errors': 'skip'
+        },
+        # deployment oriented presets
+        'local_minimal': {
+            'encoder_name': 'morgan',
+            'radius': 2,
+            'n_bits': 1024,
+            'handle_errors': 'skip',
+            'backend': 'local',
+            'auto_install': False,
+            'dependency_level': 'CORE'
+        },
+        'http_remote': {
+            'encoder_name': 'morgan',
+            'handle_errors': 'skip',
+            'backend': 'http',
+            'auto_install': False,
+            'dependency_level': 'CORE'
+        },
+        'conda_compat': {
+            'encoder_name': 'morgan',
+            'radius': 2,
+            'n_bits': 2048,
+            'handle_errors': 'skip',
+            'backend': 'conda',
+            'auto_install': True,
+            'dependency_level': 'FULL'
+        },
+        'docker_stable': {
+            'encoder_name': 'morgan',
+            'radius': 2,
+            'n_bits': 2048,
+            'handle_errors': 'skip',
+            'backend': 'docker',
+            'auto_install': False,
+            'dependency_level': 'CORE'
         }
     }
     

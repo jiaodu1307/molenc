@@ -1,0 +1,62 @@
+{
+  "summary": {
+    "total_tests": 6,
+    "passed_tests": 6,
+    "failed_tests": 0,
+    "skipped_tests": 0,
+    "success_rate": 1.0,
+    "total_time": 0.2231910228729248,
+    "avg_response_time": 0.037161946296691895
+  },
+  "test_categories": {
+    "general": {
+      "pass": 6,
+      "fail": 0,
+      "skip": 0
+    }
+  },
+  "detailed_results": [
+    {
+      "name": "API\u54cd\u5e94\u683c\u5f0f",
+      "status": "pass",
+      "response_time": 1.9073486328125e-06,
+      "error": null,
+      "details": null
+    },
+    {
+      "name": "SMILES\u9a8c\u8bc1",
+      "status": "pass",
+      "response_time": 6.4373016357421875e-06,
+      "error": null,
+      "details": null
+    },
+    {
+      "name": "\u6279\u5904\u7406\u529f\u80fd",
+      "status": "pass",
+      "response_time": 0.011979103088378906,
+      "error": null,
+      "details": null
+    },
+    {
+      "name": "\u9519\u8bef\u5904\u7406",
+      "status": "pass",
+      "response_time": 3.0279159545898438e-05,
+      "error": null,
+      "details": null
+    },
+    {
+      "name": "\u6027\u80fd\u6307\u6807",
+      "status": "pass",
+      "response_time": 0.21090245246887207,
+      "error": null,
+      "details": null
+    },
+    {
+      "name": "\u6570\u636e\u5b8c\u6574\u6027",
+      "status": "pass",
+      "response_time": 5.14984130859375e-05,
+      "error": null,
+      "details": null
+    }
+  ]
+}

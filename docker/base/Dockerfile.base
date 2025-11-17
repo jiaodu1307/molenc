@@ -1,0 +1,40 @@
+FROM python:3.9-slim
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    git \
+    wget \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 设置工作目录
+WORKDIR /app
+
+# 安装Python依赖
+COPY requirements.base.txt .
+RUN pip install --no-cache-dir -r requirements.base.txt
+
+# 安装RDKit
+RUN pip install rdkit-pypi
+
+# 安装PyTorch (CPU版本)
+RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# 复制MolEnc核心代码
+COPY molenc/ ./molenc/
+COPY setup.py pyproject.toml ./
+RUN pip install -e .
+
+# 创建缓存目录
+RUN mkdir -p /app/cache /app/models
+
+# 设置环境变量
+ENV PYTHONPATH=/app
+ENV MOLENC_CACHE_DIR=/app/cache
+ENV MOLENC_MODEL_DIR=/app/models
+
+EXPOSE 8000
+
+CMD ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

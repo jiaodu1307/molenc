@@ -112,19 +112,116 @@ class EncoderSelector:
         except ImportError:
             self.logger.warning("Could not import UniMolEncoder")
         
-        # Add other encoder variants here
+        # Fingerprint (Morgan/MACCS) - local RDKit variants
         try:
-            # Mol2Vec encoder (removed)
-            # from ..encoders.representations.sequence.mol2vec import Mol2VecEncoder
-            # self.register_encoder(
-            #     name="mol2vec_full",
-            #     encoder_class=Mol2VecEncoder,
-            #     required_packages=["mol2vec", "gensim"],
-            #     description="Full Mol2Vec implementation"
-            # )
-            
+            from ..encoders.descriptors.fingerprints.morgan import MorganEncoder
+            self.register_encoder_variant(EncoderVariant(
+                name="fingerprint_morgan_local",
+                encoder_class=MorganEncoder,
+                priority=EncoderPriority.HIGH,
+                dependency_level=DependencyLevel.FULL,
+                required_packages=["rdkit"],
+                performance_score=0.9,
+                compatibility_score=0.8,
+                description="Morgan fingerprint via RDKit"
+            ))
         except ImportError:
-            self.logger.debug("Mol2VecEncoder not available")
+            self.logger.debug("MorganEncoder not available")
+
+        try:
+            from ..encoders.descriptors.fingerprints.maccs import MACCSEncoder
+            self.register_encoder_variant(EncoderVariant(
+                name="fingerprint_maccs_local",
+                encoder_class=MACCSEncoder,
+                priority=EncoderPriority.MEDIUM,
+                dependency_level=DependencyLevel.FULL,
+                required_packages=["rdkit"],
+                performance_score=0.85,
+                compatibility_score=0.85,
+                description="MACCS fingerprint via RDKit"
+            ))
+        except ImportError:
+            self.logger.debug("MACCSEncoder not available")
+
+        # Fingerprint Morgan - HTTP remote variant
+        try:
+            from ..encoders.remote.http_morgan import HttpMorganEncoder
+            self.register_encoder_variant(EncoderVariant(
+                name="fingerprint_morgan_http",
+                encoder_class=HttpMorganEncoder,
+                priority=EncoderPriority.MEDIUM,
+                dependency_level=DependencyLevel.CORE,
+                required_packages=["requests"],
+                performance_score=0.6,
+                compatibility_score=0.95,
+                description="Morgan fingerprint via HTTP remote service"
+            ))
+        except ImportError:
+            self.logger.debug("HttpMorganEncoder not available")
+
+        # Sequence (ChemBERTa) - local torch/transformers variant
+        try:
+            from ..encoders.representations.sequence.chemberta import ChemBERTaEncoder
+            self.register_encoder_variant(EncoderVariant(
+                name="transformer_chemberta_local",
+                encoder_class=ChemBERTaEncoder,
+                priority=EncoderPriority.MEDIUM,
+                dependency_level=DependencyLevel.PARTIAL,
+                required_packages=["torch", "transformers"],
+                performance_score=0.7,
+                compatibility_score=0.6,
+                description="ChemBERTa embeddings via transformers"
+            ))
+        except ImportError:
+            self.logger.debug("ChemBERTaEncoder not available")
+
+        # Graph (GCN) - local torch/DGL variant
+        try:
+            from ..encoders.representations.graph.gcn import GCNEncoder
+            self.register_encoder_variant(EncoderVariant(
+                name="gcn_local",
+                encoder_class=GCNEncoder,
+                priority=EncoderPriority.MEDIUM,
+                dependency_level=DependencyLevel.PARTIAL,
+                required_packages=["torch", "dgl"],
+                performance_score=0.75,
+                compatibility_score=0.6,
+                description="Graph convolution encoder"
+            ))
+        except ImportError:
+            self.logger.debug("GCNEncoder not available")
+
+        # Transformer (ChemBERTa) - HTTP remote variant
+        try:
+            from ..encoders.remote.http_chemberta import HttpChemBERTaEncoder
+            self.register_encoder_variant(EncoderVariant(
+                name="transformer_chemberta_http",
+                encoder_class=HttpChemBERTaEncoder,
+                priority=EncoderPriority.MEDIUM,
+                dependency_level=DependencyLevel.CORE,
+                required_packages=["requests"],
+                performance_score=0.6,
+                compatibility_score=0.95,
+                description="ChemBERTa embeddings via HTTP remote service"
+            ))
+        except ImportError:
+            self.logger.debug("HttpChemBERTaEncoder not available")
+
+        # Graph (GCN) - HTTP remote variant
+        try:
+            from ..encoders.remote.http_gcn import HttpGCNEncoder
+            self.register_encoder_variant(EncoderVariant(
+                name="gcn_http",
+                encoder_class=HttpGCNEncoder,
+                priority=EncoderPriority.MEDIUM,
+                dependency_level=DependencyLevel.CORE,
+                required_packages=["requests"],
+                performance_score=0.6,
+                compatibility_score=0.9,
+                description="GCN graph embeddings via HTTP remote service"
+            ))
+        except ImportError:
+            self.logger.debug("HttpGCNEncoder not available")
     
     def register_encoder_variant(self, variant: EncoderVariant):
         """Register a new encoder variant."""
@@ -227,6 +324,20 @@ class EncoderSelector:
                 preferred_level = preferences['dependency_level']
                 if variant.dependency_level == preferred_level:
                     score += 0.5
+            
+            # Preference for backend by naming convention
+            if 'backend' in preferences and isinstance(preferences['backend'], str):
+                backend = preferences['backend'].lower()
+                name = variant.name.lower()
+                backend_hit = (
+                    (backend == 'http' and 'http' in name) or
+                    (backend == 'docker' and 'docker' in name) or
+                    (backend == 'conda' and 'conda' in name) or
+                    (backend == 'venv' and 'venv' in name) or
+                    (backend == 'local' and 'local' in name)
+                )
+                if backend_hit:
+                    score += 1.0
             
             # Preference for performance vs compatibility
             performance_weight = preferences.get('performance_weight', 0.5)

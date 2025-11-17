@@ -21,6 +21,8 @@ from ..environments.advanced_dependency_manager import (
     check_encoder_readiness
 )
 from .exceptions import EncoderNotAvailableError
+from .execution_backend import ExecutionBackend
+from .environment_managed_encoder import EnvironmentManagedEncoder
 
 
 class EncoderMode(Enum):
@@ -38,7 +40,7 @@ class EncoderConfig:
     mode: EncoderMode = EncoderMode.AUTO
     allow_fallback: bool = True
     auto_install: bool = False
-    max_dependency_level: DependencyLevel = DependencyLevel.ENHANCED
+    max_dependency_level: DependencyLevel = DependencyLevel.FULL
     user_preferences: Optional[Dict[str, Any]] = None
     cache_enabled: bool = True
     performance_benchmark: bool = False
@@ -118,15 +120,45 @@ class EncoderFactory:
         
         # Determine selection strategy based on mode
         strategy = self._mode_to_strategy(config.mode)
-        
+
         # Create encoder using smart selector
         try:
-            encoder = self.selector.create_encoder(
-                encoder_type=encoder_type,
-                strategy=strategy,
-                user_preferences=config.user_preferences,
-                **kwargs
-            )
+            # If backend preference indicates non-local execution, wrap with EnvironmentManagedEncoder
+            backend_pref = (config.user_preferences or {}).get('backend') if config.user_preferences else None
+            if backend_pref in [ExecutionBackend.VENV.value, ExecutionBackend.CONDA.value, ExecutionBackend.DOCKER.value, ExecutionBackend.HTTP.value]:
+                # For HTTP backend, perform a quick health check before using environment-managed execution
+                if backend_pref == ExecutionBackend.HTTP.value:
+                    is_ready = True
+                    try:
+                        import os
+                        base_url = kwargs.get('base_url') or os.environ.get('MOLENC_REMOTE_URL')
+                        if base_url:
+                            import requests
+                            resp = requests.get(base_url.rstrip('/') + '/health', timeout=3)
+                            is_ready = resp.status_code == 200
+                        else:
+                            is_ready = False
+                    except Exception:
+                        is_ready = False
+                    if not is_ready:
+                        # Fall back to selector/local path if HTTP backend not ready
+                        encoder = self.selector.create_encoder(
+                            encoder_type=encoder_type,
+                            strategy=strategy,
+                            user_preferences=config.user_preferences,
+                            **kwargs
+                        )
+                    else:
+                        encoder = EnvironmentManagedEncoder(encoder_type, backend_pref, encoder_config=kwargs)
+                else:
+                    encoder = EnvironmentManagedEncoder(encoder_type, backend_pref, encoder_config=kwargs)
+            else:
+                encoder = self.selector.create_encoder(
+                    encoder_type=encoder_type,
+                    strategy=strategy,
+                    user_preferences=config.user_preferences,
+                    **kwargs
+                )
             
             # Add factory metadata
             encoder._factory_config = config
@@ -147,7 +179,7 @@ class EncoderFactory:
             )
             
             return encoder
-            
+
         except Exception as e:
             self.logger.error(f"Failed to create {encoder_type} encoder: {e}")
             
@@ -267,12 +299,19 @@ class EncoderFactory:
                 except Exception as e:
                     reports.append(f"Error getting status for {enc_type}: {e}")
             
+            # Append environment status
+            try:
+                from ..isolation.smart_environment_manager import get_environment_manager
+                env_mgr = get_environment_manager()
+                reports.append(env_mgr.get_status_report())
+            except Exception:
+                pass
             return "\n\n".join(reports)
     
     def install_dependencies(
         self, 
         encoder_type: str, 
-        level: DependencyLevel = DependencyLevel.ENHANCED
+        level: DependencyLevel = DependencyLevel.FULL
     ) -> bool:
         """Install dependencies for a specific encoder."""
         encoder_type = self._normalize_encoder_type(encoder_type)
@@ -367,7 +406,7 @@ def get_encoder_status(encoder_type: str = None) -> str:
 
 def install_encoder_dependencies(
     encoder_type: str, 
-    level: DependencyLevel = DependencyLevel.ENHANCED
+    level: DependencyLevel = DependencyLevel.FULL
 ) -> bool:
     """Install dependencies for an encoder."""
     factory = get_encoder_factory()

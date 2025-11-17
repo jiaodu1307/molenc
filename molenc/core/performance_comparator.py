@@ -343,6 +343,28 @@ class PerformanceComparator:
                 self.logger.error(f"Failed to benchmark {name}: {e}")
                 
         return results
+
+    def quick_compare(self, encoder_a: Any, encoder_b: Any, smiles_list: List[str]) -> Dict[str, Any]:
+        """Quickly compare outputs of two encoders on the same inputs."""
+        import numpy as np
+        import time
+        t0 = time.time()
+        va = encoder_a.encode_batch(smiles_list)
+        t1 = time.time()
+        vb = encoder_b.encode_batch(smiles_list)
+        t2 = time.time()
+        shape_a = list(va.shape)
+        shape_b = list(vb.shape)
+        diff = None
+        if shape_a == shape_b and va.size > 0:
+            diff = np.linalg.norm(va - vb, axis=1).tolist()
+        return {
+            'shape_a': shape_a,
+            'shape_b': shape_b,
+            'encode_time_a': t1 - t0,
+            'encode_time_b': t2 - t1,
+            'l2_diff': diff
+        }
         
     def get_recommendations(self, 
                           metrics: Dict[str, PerformanceMetrics],
@@ -442,6 +464,26 @@ class PerformanceComparator:
             return self._generate_markdown_report(metrics)
         else:
             return self._generate_text_report(metrics)
+        
+    def export_csv(self, metrics: Dict[str, PerformanceMetrics]) -> str:
+        """Export metrics to CSV string."""
+        import io, csv
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(['encoder','encoding_time','throughput','memory_usage','cpu_usage','error_rate','accuracy_score','batch_efficiency','resource_efficiency'])
+        for name, m in metrics.items():
+            writer.writerow([
+                name,
+                m.encoding_time,
+                m.throughput,
+                m.memory_usage,
+                m.cpu_usage,
+                m.error_rate,
+                m.accuracy_score if m.accuracy_score is not None else '',
+                m.batch_efficiency,
+                m.resource_efficiency,
+            ])
+        return buf.getvalue()
             
     def _generate_text_report(self, metrics: Dict[str, PerformanceMetrics]) -> str:
         """Generate a text report."""

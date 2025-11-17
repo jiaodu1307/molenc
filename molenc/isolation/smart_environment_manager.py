@@ -21,9 +21,10 @@ from ..environments.advanced_dependency_manager import (
 
 # Optional imports with fallbacks
 try:
-    from ..cloud.api_client import get_cloud_client, CloudAPIError
-except ImportError:
-    get_cloud_client = None
+    from ..core.api_client import CloudAPIClient, APIConfig, CloudAPIError
+except Exception:
+    CloudAPIClient = None  # type: ignore
+    APIConfig = None  # type: ignore
     CloudAPIError = Exception
 
 
@@ -371,7 +372,7 @@ class SmartEnvironmentManager:
                           encoder_config: Optional[Dict[str, Any]] = None) -> Any:
         """Execute encoder via cloud API."""
         try:
-            client = self.get_cloud_client(encoder_type)
+            client = self._get_cloud_client(encoder_type, encoder_config)
             if not client:
                 raise Exception("Cloud API client not available")
             
@@ -382,21 +383,38 @@ class SmartEnvironmentManager:
                     raise Exception("Cloud client does not support single encoding")
             else:
                 if hasattr(client, 'encode_batch'):
-                    response = client.encode_batch(smiles_data, encoder_type, options=encoder_config)
+                    # Map kwargs for remote API
+                    options = encoder_config or {}
+                    response = client.encode_batch(smiles_data, encoder_type=encoder_type, **options)
                 else:
                     raise Exception("Cloud client does not support batch encoding")
             
             if hasattr(response, 'success') and not response.success:
                 raise Exception(f"Cloud API request failed: {getattr(response, 'error_message', 'Unknown error')}")
             
-            if hasattr(response, 'embeddings'):
-                return response.embeddings
-            else:
-                return response
+            return response
                 
         except Exception as e:
             self.logger.error(f"Cloud API execution failed for {encoder_type}: {e}")
             raise
+
+    def _get_cloud_client(self, encoder_type: str, encoder_config: Optional[Dict[str, Any]] = None):
+        """Build cloud client from environment or config."""
+        if CloudAPIClient is None or APIConfig is None:
+            return None
+        import os
+        base_url = None
+        # Prefer explicit config
+        if encoder_config and 'base_url' in encoder_config:
+            base_url = encoder_config.get('base_url')
+        # Fallback to env
+        if not base_url:
+            base_url = os.environ.get('MOLENC_REMOTE_URL')
+        api_key = os.environ.get('MOLENC_REMOTE_KEY')
+        timeout = int(os.environ.get('MOLENC_REMOTE_TIMEOUT', '30'))
+        if not base_url:
+            return None
+        return CloudAPIClient(APIConfig(base_url=base_url, api_key=api_key, timeout=timeout))
     
     def get_encoder_environment_config(self, encoder_type: str) -> EncoderEnvironmentConfig:
         """Get environment configuration for encoder."""

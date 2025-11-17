@@ -1,0 +1,142 @@
+version: '3.8'
+
+services:
+  morgan:
+    build:
+      context: ../..
+      dockerfile: docker/encoders/morgan/Dockerfile
+    image: molenc-morgan:latest
+    container_name: molenc-morgan
+    ports:
+      - "8001:8000"
+    environment:
+      - MOLENC_CACHE_DIR=/app/cache
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ../cache:/app/cache
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - molenc-network
+
+  chemberta:
+    build:
+      context: ../..
+      dockerfile: docker/encoders/chemberta/Dockerfile
+    image: molenc-chemberta:latest
+    container_name: molenc-chemberta
+    ports:
+      - "8002:8000"
+    environment:
+      - MOLENC_CACHE_DIR=/app/cache
+      - MOLENC_MODEL_DIR=/app/models
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ../cache:/app/cache
+      - ../models:/app/models
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - molenc-network
+
+  maccs:
+    build:
+      context: ../..
+      dockerfile: docker/encoders/maccs/Dockerfile
+    image: molenc-maccs:latest
+    container_name: molenc-maccs
+    ports:
+      - "8003:8000"
+    environment:
+      - MOLENC_CACHE_DIR=/app/cache
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ../cache:/app/cache
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - molenc-network
+
+  gcn:
+    build:
+      context: ../..
+      dockerfile: docker/encoders/gcn/Dockerfile
+    image: molenc-gcn:latest
+    container_name: molenc-gcn
+    gpus: all
+    ports:
+      - "8004:8000"
+    environment:
+      - MOLENC_CACHE_DIR=/app/cache
+      - PYTHONUNBUFFERED=1
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ../cache:/app/cache
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - molenc-network
+
+  dmpnn:
+    build:
+      context: ../..
+      dockerfile: docker/encoders/dmpnn/Dockerfile
+    image: molenc-dmpnn:latest
+    container_name: molenc-dmpnn
+    ports:
+      - "8005:8000"
+    environment:
+      - MOLENC_CACHE_DIR=/app/cache
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ../cache:/app/cache
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - molenc-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: molenc-gateway
+    ports:
+      - "80:80"
+      - "8080:8080"  # 管理界面
+    volumes:
+      - ../nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - morgan
+      - chemberta
+      - maccs
+      - gcn
+      - dmpnn
+    restart: unless-stopped
+    networks:
+      - molenc-network
+
+networks:
+  molenc-network:
+    driver: bridge
+
+volumes:
+  cache:
+  models:

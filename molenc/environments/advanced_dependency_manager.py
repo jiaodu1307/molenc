@@ -281,7 +281,10 @@ class AdvancedDependencyManager:
 
 def get_dependency_manager(base_env_dir: Optional[Path] = None) -> AdvancedDependencyManager:
     """Get the global dependency manager instance."""
-    return AdvancedDependencyManager(base_env_dir)
+    global _adv_dep_manager
+    if '_adv_dep_manager' not in globals() or _adv_dep_manager is None:
+        _adv_dep_manager = AdvancedDependencyManager(base_env_dir)
+    return _adv_dep_manager
 
 
 def check_encoder_readiness(encoder_type: str) -> Tuple[bool, DependencyLevel, str]:
@@ -305,3 +308,68 @@ def check_encoder_readiness(encoder_type: str) -> Tuple[bool, DependencyLevel, s
         return False, level, f"Only core dependencies available. Missing encoder dependencies: {missing_deps}"
     else:
         return False, level, f"Core dependencies missing. Missing: {missing_deps}"
+
+
+def _dep_install_suggestions(missing_deps: List[str]) -> List[str]:
+    suggestions: List[str] = []
+    for dep in missing_deps:
+        if dep == 'rdkit':
+            suggestions.append('conda install -c conda-forge rdkit')
+        elif dep == 'torch':
+            suggestions.append('pip install torch')
+        elif dep == 'transformers':
+            suggestions.append('pip install transformers')
+        elif dep == 'torch_geometric':
+            suggestions.append('pip install torch-geometric')
+        elif dep == 'dgl':
+            suggestions.append('pip install dgl')
+        elif dep == 'unimol_tools':
+            suggestions.append('pip install unimol-tools')
+        else:
+            suggestions.append(f'pip install {dep}')
+    return suggestions
+
+
+# Extend manager with installation helpers used by factory
+def _attach_helpers():
+    def suggest_installation(self, encoder_type: str) -> List[str]:
+        level, _, missing = self.check_encoder_dependencies(encoder_type)
+        if not missing:
+            return []
+        return _dep_install_suggestions(missing)
+
+    def auto_install_missing(self, encoder_type: str, level: DependencyLevel = DependencyLevel.FULL) -> bool:
+        lvl, _, missing = self.check_encoder_dependencies(encoder_type)
+        if not missing:
+            return True
+        # Create venv and install missing deps when requested
+        env_path = self.base_env_dir / encoder_type
+        try:
+            venv.create(env_path, with_pip=True)
+            pip_exe = self._get_pip_executable(env_path)
+            subprocess.run([pip_exe, 'install', '--upgrade', 'pip'], check=True, capture_output=True)
+            dep_to_pip = {
+                'rdkit': 'rdkit',
+                'torch': 'torch',
+                'torch_geometric': 'torch-geometric',
+                'transformers': 'transformers',
+                'dgl': 'dgl',
+                'unimol_tools': 'unimol-tools'
+            }
+            pkgs = [dep_to_pip.get(dep, dep) for dep in missing]
+            subprocess.run([pip_exe, 'install'] + pkgs, check=True, capture_output=True)
+        except Exception:
+            return False
+        # Recheck
+        lvl2, _, missing2 = self.check_encoder_dependencies(encoder_type)
+        return lvl2 == DependencyLevel.FULL and not missing2
+
+    def clear_cache(self):
+        return None
+
+    AdvancedDependencyManager.suggest_installation = suggest_installation
+    AdvancedDependencyManager.auto_install_missing = auto_install_missing
+    AdvancedDependencyManager.clear_cache = clear_cache
+
+
+_attach_helpers()
